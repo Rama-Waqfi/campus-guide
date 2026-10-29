@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Campus Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#14231d;--muted:#4a5c54;--bg:#f4f7f5;--card:#fff;--green:#0e5a43;--leaf:#d9ebe1;--line:#c9d6cf;--focus:#b35a00}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Atkinson Hyperlegible",system-ui,sans-serif;color:var(--ink);background:var(--bg);line-height:1.5}
+header{background:var(--green);color:#fff;padding:.9rem 1rem}
+header h1{margin:0;font-size:1.25rem}
+header p{margin:.1rem 0 0;font-size:.9rem;opacity:.9}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+main{display:grid;grid-template-columns:1fr;gap:0}
+#map{height:46vh;min-height:280px;background:var(--leaf)}
+#side{padding:1rem;overflow:auto}
+.nomap{padding:1rem;color:var(--muted)}
+label.sr{position:absolute;left:-9999px}
+#q{width:100%;padding:.7rem .8rem;font:inherit;border:2px solid var(--line);border-radius:6px;background:#fff}
+#chips{display:flex;flex-wrap:wrap;gap:.4rem;margin:.7rem 0}
+.chip{font:inherit;border:2px solid var(--line);background:#fff;border-radius:999px;padding:.3rem .8rem;cursor:pointer;display:flex;align-items:center;gap:.4rem}
+.chip[aria-pressed="true"]{background:var(--green);border-color:var(--green);color:#fff}
+.dot{width:.7rem;height:.7rem;border-radius:50%;display:inline-block;border:1px solid #fff}
+#list{list-style:none;margin:0;padding:0}
+#list button{width:100%;text-align:left;font:inherit;background:var(--card);border:1px solid var(--line);border-left-width:6px;padding:.6rem .8rem;margin-bottom:.4rem;cursor:pointer}
+#list button small{display:block;color:var(--muted)}
+#list button[aria-current="true"]{background:var(--leaf)}
+#detail{background:var(--card);border:1px solid var(--line);padding:1rem;margin-top:1rem}
+#detail[hidden]{display:none}
+#detail h2{margin:.2rem 0 .5rem;font-size:1.2rem}
+#detail img,.ph{width:100%;max-height:200px;object-fit:cover;border-radius:6px;background:var(--leaf);display:block}
+.ph{height:120px;display:grid;place-items:center;color:var(--muted)}
+.row{display:flex;flex-wrap:wrap;gap:.5rem;margin:.7rem 0}
+.btn{font:inherit;background:var(--green);color:#fff;border:0;border-radius:6px;padding:.55rem .9rem;cursor:pointer}
+.btn.alt{background:#fff;color:var(--green);border:2px solid var(--green)}
+select{font:inherit;padding:.5rem;border:2px solid var(--line);border-radius:6px;max-width:100%}
+#steps{padding-left:1.2rem}
+#steps li{margin-bottom:.3rem}
+#msg{color:var(--muted);min-height:1.4em}
+@media(min-width:800px){
+ main{grid-template-columns:380px 1fr;height:calc(100vh - 66px)}
+ #side{order:1;border-right:1px solid var(--line)}
+ #map{order:2;height:100%}
+}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Campus Guide</h1>
+  <p>Find any building, see what is inside, and get walking directions.</p>
+</header>
+<main>
+  <section id="side" aria-label="Buildings">
+    <label class="sr" for="q">Search buildings</label>
+    <input id="q" type="search" placeholder="Search a building, lab or service" autocomplete="off">
+    <div id="chips" role="group" aria-label="Filter by category"></div>
+    <ul id="list"></ul>
+    <article id="detail" hidden aria-live="polite"></article>
+  </section>
+  <div id="map" role="application" aria-label="Campus map"></div>
+</main>
+
+<script>
+/* ============ 1. SETTINGS ============ */
+const API_KEY = "YOUR_API_KEY";            // paste your Google Maps key (restrict it by domain!)
+const CENTER  = {lat: 32.5390, lng: 35.8570}; // PLACEHOLDER: set to your campus centre
+
+/* ============ 2. DATA (placeholder: replace with your real buildings) ============
+   Later move this to buildings.json so data stays separate from code (NFR-11).
+   img = path to your own WebP photo, audio = path to your own MP3 (both optional). */
+const CATS = {
+  faculty:{label:"Faculties", color:"#0e5a43"},
+  library:{label:"Library",   color:"#2f5da8"},
+  food:   {label:"Food",      color:"#b4521a"},
+  parking:{label:"Parking",   color:"#5f646b"},
+  service:{label:"Services",  color:"#8a3c8f"}
+};
+const BUILDINGS = [
+  {id:"it",   name:"Faculty of IT and Computer Science", cat:"faculty", lat:32.5398, lng:35.8562, hours:"8:00-16:00", facilities:["Computer labs","Lecture halls","Student lounge"], desc:"Home of the Computer Science department, with labs and the multimedia studio.", img:"", audio:""},
+  {id:"lib",  name:"Main Library", cat:"library", lat:32.5388, lng:35.8575, hours:"8:00-20:00", facilities:["Study rooms","Printing","Wi-Fi"], desc:"Quiet study floors, group rooms and a digital resources desk.", img:"", audio:""},
+  {id:"cafe", name:"Central Cafeteria", cat:"food", lat:32.5383, lng:35.8568, hours:"8:00-17:00", facilities:["Hot meals","Coffee","Outdoor seating"], desc:"The main place to eat on campus, next to the central square.", img:"", audio:""},
+  {id:"reg",  name:"Admissions and Registration", cat:"service", lat:32.5392, lng:35.8582, hours:"8:00-14:00", facilities:["Enrolment","Certificates","Information desk"], desc:"Visit for enrolment, transcripts and general questions.", img:"", audio:""},
+  {id:"park", name:"Visitor Parking", cat:"parking", lat:32.5378, lng:35.8559, hours:"Open 24h", facilities:["120 spaces","Accessible bays"], desc:"Parking for visitors, with a short walk to the central square.", img:"", audio:""}
+];
+
+/* ============ 3. STATE ============ */
+let map, info, dirSvc, dirRen, mapOK = false;
+const markers = {};
+const state = {cat:"all", q:"", sel:null};
+const $ = s => document.querySelector(s);
+
+/* ============ 4. DIRECTORY (works even if the map fails: NFR-7) ============ */
+function visible(b){
+  const q = state.q.trim().toLowerCase();
+  const text = (b.name + " " + b.desc + " " + b.facilities.join(" ") + " " + CATS[b.cat].label).toLowerCase();
+  return (state.cat === "all" || b.cat === state.cat) && (!q || text.includes(q));
+}
+function renderChips(){
+  const box = $("#chips"); box.innerHTML = "";
+  const all = Object.assign({all:{label:"All", color:"#14231d"}}, CATS);
+  for (const k in all){
+    const b = document.createElement("button");
+    b.className = "chip"; b.setAttribute("aria-pressed", state.cat === k);
+    b.innerHTML = '<span class="dot" style="background:' + all[k].color + '"></span>' + all[k].label;
+    b.onclick = () => { state.cat = k; refresh(); };
+    box.appendChild(b);
+  }
+}
+function renderList(){
+  const ul = $("#list"); ul.innerHTML = "";
+  const items = BUILDINGS.filter(visible);
+  if (!items.length){ ul.innerHTML = "<li>No places match. Try another word or choose All.</li>"; return; }
+  items.forEach(b => {
+    const li = document.createElement("li"), btn = document.createElement("button");
+    btn.style.borderLeftColor = CATS[b.cat].color;
+    btn.innerHTML = b.name + "<small>" + CATS[b.cat].label + " | " + b.hours + "</small>";
+    if (state.sel === b.id) btn.setAttribute("aria-current", "true");
+    btn.onclick = () => select(b.id);
+    li.appendChild(btn); ul.appendChild(li);
+  });
+}
+function refresh(){
+  renderChips(); renderList();
+  if (mapOK) BUILDINGS.forEach(b => markers[b.id].setVisible(visible(b)));
+}
+$("#q").addEventListener("input", e => { state.q = e.target.value; refresh(); });
+
+/* ============ 5. DETAIL PANEL ============ */
+function select(id){
+  state.sel = id;
+  const b = BUILDINGS.find(x => x.id === id);
+  const others = BUILDINGS.filter(x => x.id !== id).map(x => '<option value="' + x.id + '">' + x.name + "</option>").join("");
+  $("#detail").hidden = false;
+  $("#detail").innerHTML =
+    (b.img ? '<img src="' + b.img + '" alt="' + b.name + ' building" loading="lazy">' : '<div class="ph">Photo coming soon</div>') +
+    "<h2>" + b.name + "</h2><p>" + b.desc + "</p>" +
+    "<p><strong>Hours:</strong> " + b.hours + "<br><strong>Inside:</strong> " + b.facilities.join(", ") + "</p>" +
+    '<div class="row"><button class="btn alt" id="speak">Listen to description</button></div>' +
+    '<h3>Walking directions</h3><div class="row">' +
+    '<button class="btn" id="fromMe">From my location</button>' +
+    '<label class="sr" for="fromSel">Start from another building</label>' +
+    '<select id="fromSel"><option value="">Or start from...</option>' + others + "</select></div>" +
+    '<p id="msg"></p><ol id="steps"></ol>';
+  $("#speak").onclick = () => speak(b);
+  $("#fromMe").onclick = () => fromMe(b);
+  $("#fromSel").onchange = e => { if (e.target.value) route(BUILDINGS.find(x => x.id === e.target.value), b); };
+  renderList();
+  if (mapOK){ map.panTo({lat:b.lat, lng:b.lng}); map.setZoom(18); }
+  $("#detail").scrollIntoView({block:"nearest"});
+}
+function speak(b){
+  if (b.audio){ new Audio(b.audio).play(); return; }       // your own recorded MP3
+  if ("speechSynthesis" in window){                         // demo fallback until you record audio
+    speechSynthesis.cancel();
+    speechSynthesis.speak(new SpeechSynthesisUtterance(b.name + ". " + b.desc));
+  } else $("#msg").textContent = "Audio is not supported in this browser.";
+}
+
+/* ============ 6. DIRECTIONS (Google Directions service, walking) ============ */
+function fromMe(dest){
+  const msg = $("#msg");
+  if (!navigator.geolocation){ msg.textContent = "Location is not available. Pick a starting building instead."; return; }
+  msg.textContent = "Finding your location...";
+  navigator.geolocation.getCurrentPosition(
+    p => route({lat:p.coords.latitude, lng:p.coords.longitude}, dest),
+    () => { msg.textContent = "Location permission was denied. Pick a starting building instead."; }
+  );
+}
+function route(from, to){
+  const msg = $("#msg"), steps = $("#steps"); steps.innerHTML = "";
+  if (!mapOK){ msg.textContent = "Directions need the map. Check your API key."; return; }
+  dirSvc.route({origin:{lat:from.lat, lng:from.lng}, destination:{lat:to.lat, lng:to.lng}, travelMode:"WALKING"}, (res, status) => {
+    if (status !== "OK"){ msg.textContent = "No walking route found (" + status + ")."; return; }
+    dirRen.setDirections(res);
+    const leg = res.routes[0].legs[0];
+    msg.textContent = leg.distance.text + ", about " + leg.duration.text + " on foot.";
+    leg.steps.forEach(s => { const li = document.createElement("li"); li.innerHTML = s.instructions; steps.appendChild(li); });
+  });
+}
+
+/* ============ 7. MAP ============ */
+function initMap(){
+  mapOK = true;
+  map = new google.maps.Map($("#map"), {center:CENTER, zoom:17, mapTypeControl:true, streetViewControl:false});
+  info = new google.maps.InfoWindow();
+  dirSvc = new google.maps.DirectionsService();
+  dirRen = new google.maps.DirectionsRenderer({map:map});
+  BUILDINGS.forEach(b => {
+    const m = new google.maps.Marker({
+      position:{lat:b.lat, lng:b.lng}, map:map, title:b.name,
+      icon:{path:google.maps.SymbolPath.CIRCLE, scale:10, fillColor:CATS[b.cat].color, fillOpacity:1, strokeColor:"#fff", strokeWeight:2}
+    });
+    m.addListener("click", () => { info.setContent("<strong>" + b.name + "</strong>"); info.open(map, m); select(b.id); });
+    markers[b.id] = m;
+  });
+  refresh();
+}
+function mapFailed(){
+  mapOK = false;
+  $("#map").innerHTML = '<p class="nomap">The map could not load. Check your API key and billing settings. The building directory still works.</p>';
+}
+window.gm_authFailure = mapFailed;
+if (API_KEY === "YOUR_API_KEY") mapFailed();
+else {
+  const s = document.createElement("script");
+  s.src = "https://maps.googleapis.com/maps/api/js?key=" + API_KEY + "&callback=initMap";
+  s.async = true; s.onerror = mapFailed;
+  window.initMap = initMap;
+  document.head.appendChild(s);
+}
+refresh();
+</script>
+</body>
+</html>
